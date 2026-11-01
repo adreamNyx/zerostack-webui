@@ -40,3 +40,5 @@ run-web.sh
 zs-config/
 zs-sessions/
 projects/
+.zerostack-uploads/
+LOOP_PLAN.md

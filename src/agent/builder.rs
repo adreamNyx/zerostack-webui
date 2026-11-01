@@ -339,7 +339,7 @@ pub async fn build_agent_inner(model: DynModel<Completion>, build: AgentBuild<'_
     let edit_tool = tools::EditTool::new(permission.clone(), ask_tx.clone());
     #[cfg(feature = "lsp")]
     let edit_tool = edit_tool.with_lsp(lsp_manager.clone());
-    let base_tools: SmallVec<[DynamicTool; 8]> = SmallVec::from_buf([
+    let base_tools: SmallVec<[DynamicTool; 9]> = SmallVec::from_buf([
         dynamic_tool(tools::ReadTool::new(
             permission.clone(),
             ask_tx.clone(),
@@ -370,6 +370,12 @@ pub async fn build_agent_inner(model: DynModel<Completion>, build: AgentBuild<'_
             permission.clone(),
             ask_tx.clone(),
             max_list_dir_entries,
+        )),
+        dynamic_tool(tools::SshTool::new(
+            permission.clone(),
+            ask_tx.clone(),
+            cfg.ssh_hosts_map(),
+            max_bash_output_lines,
         )),
         dynamic_tool(tools::WriteTodoList::new(
             permission.clone(),

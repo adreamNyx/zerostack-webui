@@ -238,3 +238,25 @@ impl Default for AdvisorConfig {
         }
     }
 }
+
+/// One entry of `[ssh_hosts.<name>]`: a named remote the `ssh` agent tool can
+/// target by alias instead of spelling out user/port/key at every call.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SshHostConfig {
+    /// Hostname or IP (may be a `~/.ssh/config` alias).
+    #[serde(default)]
+    pub host: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Private key path; `~` is expanded at call time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_file: Option<String>,
+    /// Env var holding the password; requires `sshpass` on PATH.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password_env: Option<String>,
+    /// One-line note that shows up in the tool description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
