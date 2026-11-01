@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+      - name: cargo fmt --check (advisory)
+        run: cargo fmt --all -- --check
+        continue-on-error: true
+
+  clippy:
+    name: clippy (web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # .cargo/config.toml forces -fuse-ld=mold on x86_64-linux, and aws-lc-rs
+      # needs cmake; both must be present before the first build.
+      - name: System deps (mold, cmake, pkg-config)
+        run: sudo apt-get update && sudo apt-get install -y mold cmake pkg-config libssl-dev
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --release --features web --all-targets -- -D warnings
+
+  test:
+    name: test (web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System deps (mold, cmake, pkg-config)
+        run: sudo apt-get update && sudo apt-get install -y mold cmake pkg-config libssl-dev
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --release --features web
+
+  build-extended:
+    name: build (extended features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System deps (mold, cmake, pkg-config)
+        run: sudo apt-get update && sudo apt-get install -y mold cmake pkg-config libssl-dev
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+      # Everything the web UI can surface: memory/hooks/advisor panels, lsp
+      # diagnostics, long-horizon loop, session export.
+      - name: cargo build --features web,memory,hooks,advisor,lsp,loop,export
+        run: cargo build --release --features web,memory,hooks,advisor,lsp,loop,export
+
+  webui-frontend:
+    name: webui frontend syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: node --check app.js
+        run: node --check src/extras/web/static/app.js
+      - name: every $("id") referenced by app.js exists in index.html
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          html = open("src/extras/web/static/index.html").read()
+          js = open("src/extras/web/static/app.js").read()
+          ids = set(re.findall(r'id="([^"]+)"', html))
+          refs = set(re.findall(r'\$\("([^"]+)"\)', js))
+          missing = sorted(refs - ids)
+          if missing:
+              print("app.js references missing element ids:", missing)
+              sys.exit(1)
+          print(f"ok: {len(ids)} ids, {len(refs)} references")
+          PY
