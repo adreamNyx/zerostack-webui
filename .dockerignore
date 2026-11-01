@@ -1,0 +1,9 @@
+# 构建上下文瘦身：这些与镜像无关
+target/
+.git/
+run-web.sh
+*.md
+!README.md
+zs-sessions/
+zs-config/
+projects/

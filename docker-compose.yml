@@ -1,0 +1,19 @@
+services:
+  zerostack:
+    build: .
+    image: zerostack-webui:latest
+    container_name: zerostack-webui
+    restart: unless-stopped
+    ports:
+      - "18800:18800"
+    environment:
+      # 密钥走环境变量注入（config.toml 里 api_key_env = "OCTOPUS_API_KEY"），
+      # 绝不写进镜像或仓库。可用 .env 文件（记得加入 .gitignore）或 docker secrets。
+      - OCTOPUS_API_KEY=${OCTOPUS_API_KEY:?请在 .env 或环境里提供 OCTOPUS_API_KEY}
+    volumes:
+      # 配置（config.toml，含 quick_models 模型组）
+      - ./zs-config:/data/config
+      # 会话 JSON —— 容器升级/重建后对话不丢，也是与宿主机 TUI 换班的交接簿
+      - ./zs-sessions:/data/sessions
+      # agent 的工作目录：想让它改哪个项目，就把项目挂进来
+      - ./projects:/workspace

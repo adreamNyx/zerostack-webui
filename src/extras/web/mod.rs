@@ -57,7 +57,7 @@ const INDEX_HTML: &str = include_str!("static/index.html");
 const APP_JS: &str = include_str!("static/app.js");
 const STYLE_CSS: &str = include_str!("static/style.css");
 
-const DEFAULT_PORT: u16 = 8629;
+const DEFAULT_PORT: u16 = 18800;
 
 /// Everything one `zerostack --web` server needs. Built by
 /// `Startup::dispatch_web` from the same pieces the TUI would get: resolved

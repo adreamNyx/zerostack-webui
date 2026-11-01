@@ -251,7 +251,7 @@ pub struct Cli {
     pub web_host: String,
 
     #[cfg(feature = "web")]
-    #[arg(long = "web-port", help = "Web UI bind port [default: 8629]")]
+    #[arg(long = "web-port", help = "Web UI bind port [default: 18800]")]
     pub web_port: Option<u16>,
 
     #[cfg(feature = "loop")]
