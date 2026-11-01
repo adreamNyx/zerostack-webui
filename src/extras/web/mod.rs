@@ -17,6 +17,7 @@
 //!   `{"type":"permission_reply","id":"...","decision":"allow_once|allow_always|deny"}`
 //!   `{"type":"new_session"}`                            fresh session
 //!   `{"type":"resume","id":"<prefix>"}`                 load a saved session
+//!   `{"type":"delete_session","id":"<prefix>"}`         delete a saved session
 //!   `{"type":"session_list"}`                           refresh sidebar list
 //!   `{"type":"switch_model","name":"<quick-model>"}`    hot-swap provider/model
 //!
@@ -491,6 +492,74 @@ async fn handle_inbound<F, Fut>(
                 }
                 Err(e) => send(json!({"type": "error", "message": e.to_string()})).await,
             }
+        }
+        Some("delete_session") => {
+            let Some(id) = v.get("id").and_then(Value::as_str) else {
+                return;
+            };
+            // An empty id would prefix-match every session (including the live
+            // one); refuse rather than risk deleting the wrong conversation.
+            if id.is_empty() {
+                send(json!({"type": "error", "message": "delete_session requires an id"}))
+                    .await;
+                return;
+            }
+            if turn.is_some() {
+                send(json!({"type": "error", "message": "cannot delete a session during a turn"}))
+                    .await;
+                return;
+            }
+            // The sidebar sends a full id, but resolve through the same prefix
+            // matcher `resume` uses. Ambiguity is an error: a partial id must
+            // never silently delete a different conversation.
+            let active_id = state.session.lock().await.id.clone();
+            let target_id = if active_id.starts_with(id) {
+                // A freshly created session has never been written to disk, so
+                // lookups below would miss it. Match the live session first.
+                Some(active_id.clone())
+            } else {
+                match storage::find_sessions_by_prefix(id) {
+                    Err(e) => {
+                        send(json!({"type": "error", "message": e.to_string()})).await;
+                        return;
+                    }
+                    Ok(m) => match m.len() {
+                        0 => None,
+                        1 => Some(m.into_iter().next().expect("non-empty").id),
+                        n => {
+                            send(json!({
+                                "type": "error",
+                                "message": format!("{n} sessions match '{id}', be more specific"),
+                            }))
+                            .await;
+                            return;
+                        }
+                    },
+                }
+            };
+            let Some(target_id) = target_id else {
+                send(json!({"type": "error", "message": format!("session not found: {id}")}))
+                    .await;
+                return;
+            };
+            // `new_session` flushes the outgoing session to disk, so it must run
+            // before the delete or the file we just removed reappears.
+            if target_id == active_id {
+                let s = new_session(state).await;
+                let payload = session_state(&s, state);
+                *state.session.lock().await = s;
+                send(payload).await;
+            }
+            if let Err(e) = storage::delete_session(&target_id) {
+                send(json!({"type": "error", "message": format!("failed to delete: {e}")}))
+                    .await;
+                return;
+            }
+            send(json!({"type": "session_deleted", "id": target_id})).await;
+            let sessions = storage::find_recent_sessions(30)
+                .map(|list| list.iter().map(session_summary).collect::<Vec<_>>())
+                .unwrap_or_default();
+            send(json!({"type": "session_list", "sessions": sessions})).await;
         }
         Some("session_list") => {
             let sessions = storage::find_recent_sessions(30)

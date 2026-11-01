@@ -292,10 +292,24 @@ function handle(v) {
         d.className = "sess" + (s.id === currentSessionId ? " active" : "");
         const name = s.name || s.last || "(空会话)";
         d.innerHTML = `<div class="s-name">${esc(name)}</div>
-          <div class="s-meta">${esc(s.id.slice(0, 8))} · ${esc(s.model)} · ${s.messages}条</div>`;
+          <div class="s-meta">${esc(s.id.slice(0, 8))} · ${esc(s.model)} · ${s.messages}条</div>
+          <button class="sess-del" title="删除会话" aria-label="删除会话">✕</button>`;
         d.onclick = () => send({ type: "resume", id: s.id });
+        const del = d.querySelector(".sess-del");
+        if (del) {
+          del.onclick = (e) => {
+            // 阻止冒泡，否则会先触发上面的 resume
+            e.stopPropagation();
+            if (!confirm(`删除会话 ${s.id.slice(0, 8)}？此操作不可撤销。`)) return;
+            send({ type: "delete_session", id: s.id });
+          };
+        }
         list.appendChild(d);
       }
+      break;
+    }
+    case "session_deleted": {
+      addSys(`🗑 已删除会话 ${String(v.id).slice(0, 8)}`);
       break;
     }
     case "token": {
