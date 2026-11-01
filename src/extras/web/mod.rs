@@ -2071,10 +2071,13 @@ fn ui_state(state: &Arc<AppState>, conn: &Arc<Conn>) -> Value {
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default();
     mcp_servers.sort();
+    #[cfg(feature = "advisor")]
     let advisor = state.cfg.advisor.as_ref().map(|a| json!({
         "enabled": a.enabled,
         "model": a.model,
     }));
+    #[cfg(not(feature = "advisor"))]
+    let advisor: Option<Value> = None;
     json!({
         "type": "ui_state",
         "prompt": prompt,
