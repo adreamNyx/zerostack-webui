@@ -785,3 +785,195 @@ button, select, textarea { font-family: inherit; }
 .feat-list { display: flex; flex-direction: column; gap: 1px; }
 .feat-list .cfg-row { padding: 3px 6px; }
 .feat-list code { font-size: 11px; color: var(--label-2); }
+
+/* ═══════════════════════════════════════════════════════════════
+   美化增强层 · Beautification layer
+   蓝紫渐变品牌色 / 气泡渐变 / 微动效 / 毛玻璃质感
+   全部为对上方基础样式的渐进覆盖，不改变任何布局结构
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* 品牌渐变：蓝 → 紫，贯穿 logo、主按钮、气泡、进度条 */
+  --grad: linear-gradient(135deg, #4f8cff 0%, #7c5cff 100%);
+  --grad-soft: linear-gradient(135deg, #4f8cff1f 0%, #7c5cff1f 100%);
+  --glow: 0 2px 14px 0 #4f8cff33;
+}
+
+/* ── 全局质感 ─────────────────────────────────────────────── */
+html, body { transition: background .25s ease, color .25s ease; }
+
+/* 主题切换时所有面板平滑过渡 */
+.sidebar, .topbar, .composer, .drawer, .tool, .bubble, .menu, .modal-card {
+  transition: background .25s ease, border-color .25s ease, color .25s ease;
+}
+
+/* 更精致的滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--label-3) 35%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--label-3) 60%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ── 侧栏：品牌与层级 ─────────────────────────────────────── */
+.logo, .empty-logo {
+  background: var(--grad);
+  color: #fff;
+  box-shadow: var(--glow);
+  letter-spacing: .5px;
+}
+.brand-text { font-weight: 700; letter-spacing: .3px; }
+
+.new-chat {
+  border: 1px dashed var(--border-2);
+  background: linear-gradient(180deg, var(--bg-layer), var(--bg-soft));
+}
+.new-chat:hover {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: var(--glow);
+}
+.new-chat .plus { color: var(--accent); font-weight: 600; }
+
+.sess { transition: background .12s ease, transform .12s ease; }
+.sess:hover { transform: translateX(2px); }
+.sess.on {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 14%, var(--active)) 0%,
+    var(--active) 60%);
+}
+.sess.on .sess-name::before {
+  height: 16px;
+  background: var(--grad);
+  box-shadow: 0 0 6px 0 #4f8cff55;
+}
+
+/* ── 顶栏 ─────────────────────────────────────────────────── */
+.topbar {
+  background: color-mix(in srgb, var(--bg-base) 72%, transparent);
+  backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg,
+    var(--border-1) 0%, color-mix(in srgb, var(--accent) 28%, transparent) 50%,
+    var(--border-1) 100%) 1;
+}
+.chip-btn.on {
+  background: var(--grad);
+  color: #fff;
+  box-shadow: var(--glow);
+}
+
+/* ── 聊天区：消息与气泡 ───────────────────────────────────── */
+.msg { animation: msgIn .28s cubic-bezier(.21, 1.02, .55, 1) both; }
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.msg.user .bubble {
+  background: var(--grad);
+  color: #fff;
+  border-bottom-right-radius: 6px;
+  box-shadow: 0 2px 10px 0 #4f8cff2e;
+}
+.msg.user .bubble a { color: #fff; text-decoration: underline; }
+
+.bubble { border-bottom-right-radius: var(--radius-lg); }
+
+/* 空状态 hero */
+.empty { position: relative; }
+.empty-logo {
+  width: 52px; height: 52px; font-size: 26px;
+  border-radius: 14px;
+  box-shadow: 0 4px 24px 0 #7c5cff40;
+}
+.empty h1 {
+  font-size: 24px;
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.empty-tips span {
+  background: var(--grad-soft);
+  border-color: transparent;
+  color: var(--label-2);
+  transition: transform .15s ease;
+}
+.empty-tips span:hover { transform: translateY(-2px); }
+
+/* ── 工具卡片 ─────────────────────────────────────────────── */
+.tool {
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.tool:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-2));
+  box-shadow: var(--shadow-2);
+}
+.tool-state { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent); }
+.tool-state.done { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+.tool.open { border-color: color-mix(in srgb, var(--accent) 30%, var(--border-2)); }
+
+/* ── 思考块 / 系统消息 ────────────────────────────────────── */
+.reason {
+  border: none;
+  border-left: 2px solid var(--grad);
+  background: linear-gradient(90deg, var(--grad-soft), transparent 70%);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.btw { border-left: 3px solid; border-image: var(--grad) 1; }
+
+/* ── 输入区：聚焦光环 ─────────────────────────────────────── */
+.composer:focus-within {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 4px 20px 0 #4f8cff26;
+}
+.btn.primary {
+  background: var(--grad);
+  box-shadow: var(--glow);
+  transition: transform .12s ease, box-shadow .15s ease, filter .15s ease;
+}
+.btn.primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.btn.primary:active { transform: none; }
+.composer-hints .h { transition: background .15s ease; }
+
+/* ── 权限弹窗：脉冲警示 ───────────────────────────────────── */
+.perm { border-width: 1px; }
+@keyframes permPulse {
+  0%, 100% { box-shadow: 0 0 0 0 #f59e0b40; }
+  50%      { box-shadow: 0 0 0 6px #f59e0b00; }
+}
+.perm { animation: permPulse 2s ease infinite; }
+
+/* ── 统计抽屉 ─────────────────────────────────────────────── */
+.drawer {
+  backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--bg-layer) 86%, transparent);
+}
+.ctx-fill { background: var(--grad); box-shadow: 0 0 8px 0 #4f8cff44; }
+
+/* ── 模态与代码块 ─────────────────────────────────────────── */
+.modal { backdrop-filter: blur(6px); }
+.md pre {
+  background: color-mix(in srgb, var(--inline-code) 55%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--accent) 12%, var(--border-1));
+}
+.md pre code { font-size: 12px; }
+.md blockquote { border-left: 2px solid var(--accent); }
+
+/* 光标呼吸感 */
+@keyframes blink { 50% { opacity: .15; } }
+
+/* 无障碍：减弱动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .msg, .perm { animation: none; }
+  * { transition-duration: .01ms !important; }
+}
