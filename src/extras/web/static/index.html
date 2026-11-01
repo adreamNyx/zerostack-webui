@@ -1,90 +1,171 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>zerostack · web ui</title>
+<title>zerostack · web</title>
 <link rel="stylesheet" href="/style.css">
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 </head>
 <body>
-<div id="app">
+<div class="app" id="app">
 
-  <!-- ══ 顶栏 ══ -->
-  <header id="topbar">
-    <button id="btn-sidebar" class="icon-btn" title="侧栏">☰</button>
-    <div class="brand">ZERO<span>STACK</span></div>
-    <div id="tb-session" class="tb-item" title="当前会话">—</div>
-    <div class="tb-spacer"></div>
-    <select id="model-select" class="mono" title="切换模型"></select>
-    <div id="tb-status" class="tb-dot off" title="连接状态"></div>
-    <button id="btn-panel" class="icon-btn" title="统计面板">📊</button>
-  </header>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="logo">z</span>
+      <span class="brand-text">zerostack</span>
+      <button class="icon ghost" id="btn-theme" title="切换主题">◐</button>
+    </div>
 
-  <!-- ══ 左侧：会话栏 ══ -->
-  <aside id="sidebar">
-    <button id="btn-new" class="btn-new">＋ 新会话</button>
-    <div class="side-label">最近会话</div>
-    <div id="session-list" class="session-list"></div>
+    <button class="new-chat" id="btn-new"><span class="plus">＋</span>新对话</button>
+
+    <div class="side-tabs">
+      <button class="side-tab on" data-tab="sessions">会话</button>
+      <button class="side-tab" data-tab="files">文件</button>
+    </div>
+
+    <div class="pane" id="pane-sessions">
+      <div class="sessions" id="sessions"></div>
+    </div>
+    <div class="pane" id="pane-files" hidden>
+      <div class="tree" id="tree"></div>
+    </div>
+
     <div class="side-foot">
-      <div class="side-label">工作目录</div>
-      <div id="side-cwd" class="mono side-cwd">—</div>
+      <button class="cwd" id="btn-cwd" title="点击切换工作目录">
+        <span class="dot"></span><span id="cwd-text">…</span>
+      </button>
     </div>
   </aside>
 
-  <!-- ══ 中间：聊天流 ══ -->
-  <main id="chat">
-    <div id="stream"></div>
-
-    <!-- 权限询问（内嵌卡片由 JS 动态插入 stream） -->
-
-    <div id="inputbar">
-      <div id="perm-banner" class="hidden"></div>
-      <div class="input-row">
-        <textarea id="input" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行…"></textarea>
-        <button id="btn-send" class="btn-send" title="发送">➤</button>
-        <button id="btn-stop" class="btn-stop hidden" title="停止">■</button>
+  <main class="main">
+    <header class="topbar">
+      <button class="icon ghost only-mobile" id="btn-sidebar" title="侧栏">☰</button>
+      <div class="tb-title">
+        <span id="tb-session">新对话</span>
+        <button class="icon ghost tiny" id="btn-rename" title="重命名会话">✎</button>
       </div>
-      <div class="input-hint mono">
-        <span id="hint-context">ctx —</span>
-        <span id="hint-cost">¥ —</span>
+      <div class="spacer"></div>
+      <label class="sel" title="提示词模式 /prompt"><span>提示词</span><select id="sel-prompt"></select></label>
+      <label class="sel" title="权限模式 /mode"><span>权限</span><select id="sel-mode"></select></label>
+      <label class="sel" title="模型 /model"><span>模型</span><select id="sel-model"></select></label>
+      <button class="chip-btn" id="btn-reason" title="显示/隐藏推理过程">推理</button>
+      <button class="icon ghost" id="btn-menu" title="更多操作">⋯</button>
+      <button class="icon ghost" id="btn-panel" title="用量统计">▤</button>
+    </header>
+
+    <div class="menu" id="menu" hidden>
+      <button class="mi" data-act="compact">压缩上下文 <code>/compact</code></button>
+      <button class="mi" data-act="undo">撤销上一轮 <code>/undo</code></button>
+      <button class="mi" data-act="retry">重试上一轮 <code>/retry</code></button>
+      <button class="mi" data-act="btw">并行旁问 <code>/btw</code></button>
+      <button class="mi" data-act="loop">长任务循环 <code>/loop</code></button>
+      <div class="msep"></div>
+      <button class="mi" data-act="wt-new">新建 worktree <code>/wt</code></button>
+      <button class="mi" data-act="wt-merge">合并 worktree <code>/wt-merge</code></button>
+      <button class="mi" data-act="wt-exit">退出 worktree <code>/wt-exit</code></button>
+      <div class="msep"></div>
+      <button class="mi" data-act="export">导出 Markdown <code>/export</code></button>
+      <button class="mi" data-act="settings">模型与 Provider <code>/models</code></button>
+    </div>
+
+    <div class="thread" id="thread">
+      <div class="thread-inner" id="stream">
+        <div class="empty" id="empty">
+          <div class="empty-logo">z</div>
+          <h1>zerostack web</h1>
+          <p>Rust 写的极简编码 agent · WebSocket 前端</p>
+          <div class="empty-tips">
+            <span>Enter 发送</span><span>Shift+Enter 换行</span><span>@ 引用文件</span>
+            <span>/loop 长任务</span><span>/btw 旁问</span><span>Esc 中止</span>
+          </div>
+        </div>
       </div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="queue" id="queue" hidden></div>
+      <div class="attach" id="attach" hidden></div>
+
+      <div class="perm" id="perm" hidden>
+        <div class="perm-head">
+          <span class="perm-dot"></span>
+          <b id="perm-tool">tool</b>
+          <span class="perm-hint">请求授权</span>
+          <div class="spacer"></div>
+          <button class="icon ghost tiny" id="perm-close" title="拒绝">✕</button>
+        </div>
+        <pre class="perm-input" id="perm-input"></pre>
+        <div class="perm-actions">
+          <button class="btn" data-dec="deny">拒绝</button>
+          <button class="btn" id="perm-always">总是允许</button>
+          <button class="btn primary" data-dec="allow_once">允许一次</button>
+        </div>
+      </div>
+
+      <div class="mention" id="mention" hidden></div>
+
+      <div class="composer" id="composer">
+        <textarea id="input" rows="1" placeholder="给 zerostack 发消息…  (/ 命令 · @ 引用文件)"></textarea>
+        <div class="composer-bar">
+          <button class="icon ghost" id="btn-attach" title="添加文件（也可以直接拖进来）">📎</button>
+          <input id="file-input" type="file" multiple hidden>
+          <div class="composer-hints" id="hints"></div>
+          <div class="spacer"></div>
+          <button class="btn" id="btn-stop" hidden>停止</button>
+          <button class="btn primary" id="btn-send">发送</button>
+        </div>
+      </div>
+      <div class="foot-hints" id="foot-hints"></div>
     </div>
   </main>
 
-  <!-- ══ 右侧：统计面板 ══ -->
-  <aside id="panel">
-    <div class="panel-sec">
-      <div class="panel-title">TOKEN 统计</div>
-      <div class="stat-grid">
-        <div class="stat"><div class="stat-v mono" id="st-in">0</div><div class="stat-k">输入</div></div>
-        <div class="stat"><div class="stat-v mono" id="st-out">0</div><div class="stat-k">输出</div></div>
-        <div class="stat"><div class="stat-v mono" id="st-cache-r">0</div><div class="stat-k">缓存读</div></div>
-        <div class="stat"><div class="stat-v mono" id="st-cache-w">0</div><div class="stat-k">缓存写</div></div>
-      </div>
-      <div class="ctx-block">
-        <div class="ctx-head"><span>上下文占用</span><span class="mono" id="ctx-pct">—</span></div>
-        <div class="ctx-bar"><div id="ctx-fill"></div></div>
-        <div class="ctx-sub mono"><span id="ctx-used">—</span> / <span id="ctx-window">—</span></div>
-      </div>
-      <div class="cost-row"><span>累计费用</span><span class="mono" id="st-cost">¥0.0000</span></div>
-      <div class="cost-row"><span>消息数</span><span class="mono" id="st-msgs">0</span></div>
+  <aside class="drawer" id="panel" hidden>
+    <div class="drawer-head">
+      <b>用量与上下文</b>
+      <button class="icon ghost tiny" id="panel-close">✕</button>
     </div>
-
-    <div class="panel-sec">
-      <div class="panel-title">会话</div>
-      <div class="kv"><span>ID</span><span class="mono" id="kv-id">—</span></div>
-      <div class="kv"><span>模型</span><span class="mono" id="kv-model">—</span></div>
-      <div class="kv"><span>提供商</span><span class="mono" id="kv-provider">—</span></div>
+    <div class="kv"><span>会话</span><code id="kv-id">—</code></div>
+    <div class="kv"><span>模型</span><code id="kv-model">—</code></div>
+    <div class="kv"><span>连接</span><code id="kv-ws">连接中…</code></div>
+    <div class="sep"></div>
+    <div class="ctx">
+      <div class="ctx-label"><span>上下文占用</span><span id="ctx-pct">0%</span></div>
+      <div class="ctx-bar"><div class="ctx-fill" id="ctx-fill"></div></div>
+      <div class="ctx-nums"><span id="ctx-used">0</span> / <span id="ctx-window">—</span> tokens</div>
     </div>
-
-    <div class="panel-sec">
-      <div class="panel-title">运行状态</div>
-      <div class="kv"><span>状态</span><span id="kv-run" class="ok">空闲</span></div>
-      <div class="kv"><span>WS</span><span id="kv-ws" class="ok">已连接</span></div>
-    </div>
+    <div class="sep"></div>
+    <div class="kv"><span>输入 tokens</span><code id="st-in">0</code></div>
+    <div class="kv"><span>输出 tokens</span><code id="st-out">0</code></div>
+    <div class="kv"><span>缓存命中</span><code id="st-cache-r">0</code></div>
+    <div class="kv"><span>消息数</span><code id="st-msgs">0</code></div>
+    <div class="kv"><span>累计成本</span><code id="st-cost">¥0.0000</code></div>
   </aside>
+
+  <div class="modal" id="modal" hidden>
+    <div class="modal-card">
+      <div class="drawer-head">
+        <b>模型与 Provider</b>
+        <button class="icon ghost tiny" id="modal-close">✕</button>
+      </div>
+      <div class="kv"><span>配置文件</span><code id="cfg-file">—</code></div>
+      <div class="sep"></div>
+      <div class="side-label">已注册模型</div>
+      <div id="cfg-models" class="cfg-models"></div>
+      <div class="sep"></div>
+      <div class="side-label">Provider</div>
+      <div id="cfg-providers" class="cfg-providers"></div>
+      <div class="sep"></div>
+      <div class="side-label">新增 quick model</div>
+      <div class="cfg-form">
+        <input id="m-name" placeholder="别名,如 fast">
+        <input id="m-provider" placeholder="provider,如 mc2api">
+        <input id="m-model" placeholder="model,如 mc-chat">
+        <button class="btn primary" id="btn-add-model">添加</button>
+      </div>
+    </div>
+  </div>
 
 </div>
 <script src="/app.js"></script>

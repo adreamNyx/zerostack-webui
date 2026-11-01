@@ -8,6 +8,7 @@ pub(crate) mod list_dir;
 pub(crate) mod lsp;
 pub(crate) mod normalize;
 pub(crate) mod read;
+pub(crate) mod ssh;
 pub(crate) mod todo;
 pub(crate) mod write;
 
@@ -76,6 +77,7 @@ pub use find_files::FindFilesTool;
 pub use grep::GrepTool;
 pub use list_dir::ListDirTool;
 pub use read::ReadTool;
+pub use ssh::SshTool;
 pub use todo::WriteTodoList;
 pub use write::WriteTool;
 

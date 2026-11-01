@@ -98,6 +98,8 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_providers: Option<HashMap<String, types::CustomProviderConfig>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh_hosts: Option<HashMap<String, types::SshHostConfig>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub permission: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "permission-regex")]
     pub permission_regex: Option<serde_json::Value>,
@@ -231,6 +233,11 @@ pub struct Config {
 }
 
 impl Config {
+    /// Named SSH targets for the `ssh` agent tool.
+    pub fn ssh_hosts_map(&self) -> HashMap<String, types::SshHostConfig> {
+        self.ssh_hosts.clone().unwrap_or_default()
+    }
+
     pub fn custom_providers_map(&self) -> HashMap<String, types::CustomProviderConfig> {
         self.custom_providers.clone().unwrap_or_default()
     }
