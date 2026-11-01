@@ -782,3 +782,6 @@ button, select, textarea { font-family: inherit; }
 
 /* 提示词下拉：中英对照标签更长，单独放宽 */
 #sel-prompt select { max-width: 190px; }
+.feat-list { display: flex; flex-direction: column; gap: 1px; }
+.feat-list .cfg-row { padding: 3px 6px; }
+.feat-list code { font-size: 11px; color: var(--label-2); }
