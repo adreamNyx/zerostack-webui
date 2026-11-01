@@ -13,6 +13,7 @@ const S = {
   ask: null, history: [], histIdx: -1, queue: [],
   loop: null, btwCard: null, mention: { items: [], idx: -1 },
   treeState: new Map(), attached: [], features: {}, mcpServers: [], uploadMaxMb: 25,
+  modelName: null,
 };
 
 /* ── helpers ─────────────────────────────────────────────── */
@@ -116,6 +117,7 @@ function onUiState(m) {
   sm.innerHTML = ""; S.modes.forEach((x) => sm.appendChild(new Option(modeLabel(x), x)));
   sm.value = m.mode || "standard";
   S.reasoning = !!m.reasoning;
+  if ("model_name" in m) { S.modelName = m.model_name || null; renderModels(); }
   S.features = m.features || {};
   S.mcpServers = m.mcp_servers || [];
   S.uploadMaxMb = m.upload_max_mb || 25;
@@ -839,7 +841,12 @@ $("btn-cwd").onclick = () => {
 };
 $("sel-prompt").onchange = (e) => send({ type: "set_prompt", name: e.target.value || null });
 $("sel-mode").onchange = (e) => send({ type: "set_mode", mode: e.target.value });
-$("sel-model").onchange = (e) => send({ type: "switch_model", name: e.target.value });
+$("sel-model").onchange = (e) => {
+  S.modelName = e.target.value;
+  send({ type: "switch_model", name: e.target.value });
+  if (S.busy) sysmsg(`已切到 ${e.target.value}，本轮结束后生效`);
+  else sysmsg(`已切到 ${e.target.value}`);
+};
 $("btn-reason").onclick = () => send({ type: "set_reasoning", enabled: !S.reasoning });
 
 document.querySelectorAll(".perm-actions .btn").forEach((b) => {
@@ -924,10 +931,15 @@ function renderModels() {
     const label = m.name === m.model ? m.model : `${m.name} · ${m.model}`;
     sm.appendChild(new Option(label, m.name));
   });
-  if (S.session) {
-    const hit = S.models.find((m) => m.model === S.session.model && m.provider === S.session.provider);
-    if (hit) sm.value = hit.name;
+  // 服务端记着用户选的别名,优先用它回显:多个别名可能指向同一个
+  // provider/model 组合(如 chat 与 deepseek),按 model 反查会跳错条目。
+  let pick = S.modelName || null;
+  if (!pick || !S.models.some((m) => m.name === pick)) {
+    const hit = S.session &&
+      S.models.find((m) => m.model === S.session.model && m.provider === S.session.provider);
+    pick = hit ? hit.name : null;
   }
+  if (pick) sm.value = pick;
 }
 
 /* ── go ──────────────────────────────────────────────────── */

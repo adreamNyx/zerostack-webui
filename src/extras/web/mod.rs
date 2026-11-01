@@ -126,6 +126,10 @@ struct RuntimeModel {
 
 /// Process-wide UI preferences: the web counterpart of the TUI's slash state.
 struct UiState {
+    /// Quick-model alias the user picked in the UI; echoed back so the
+    /// dropdown shows the exact entry instead of guessing from provider+model
+    /// (several aliases can point at the same pair).
+    model_name: Option<String>,
     /// Active system-prompt mode (`/prompt`); `None` = the config default.
     prompt: Option<String>,
     /// Reasoning stream visibility (`/reasoning`).
@@ -266,6 +270,7 @@ pub(crate) async fn run(args: WebArgs) -> anyhow::Result<()> {
             model,
         }),
         ui: AsyncRwLock::new(UiState {
+            model_name: None,
             prompt: initial_prompt,
             reasoning,
             pre_prompt_mode: None,
@@ -536,6 +541,7 @@ async fn connection(state: Arc<AppState>, socket: WebSocket) {
     let conn_ui = {
         let ui = state.ui.read().await;
         UiState {
+            model_name: ui.model_name.clone(),
             prompt: ui.prompt.clone(),
             reasoning: ui.reasoning,
             pre_prompt_mode: ui.pre_prompt_mode,
@@ -1029,8 +1035,11 @@ async fn handle_inbound<F, Fut>(
                         session.provider = CompactString::new(&prov);
                         session.model = CompactString::new(&mdl);
                     }
+                    conn.ui.write().await.model_name = Some(name.to_string());
                     let session = conn.session.lock().await;
                     send(session_state(&session, state)).await;
+                    drop(session);
+                    send(ui_state(state, conn)).await;
                 }
                 Err(e) => send(json!({"type": "error", "message": e.to_string()})).await,
             }
@@ -2080,6 +2089,7 @@ fn ui_state(state: &Arc<AppState>, conn: &Arc<Conn>) -> Value {
     let advisor: Option<Value> = None;
     json!({
         "type": "ui_state",
+        "model_name": conn.ui.try_read().ok().and_then(|u| u.model_name.clone()),
         "prompt": prompt,
         "prompts": prompts,
         "mode": mode,
