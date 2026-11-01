@@ -10,6 +10,9 @@ pub mod mcp;
 #[cfg(feature = "acp")]
 pub mod acp;
 
+#[cfg(feature = "web")]
+pub mod web;
+
 #[cfg(feature = "memory")]
 pub mod memory;
 

@@ -238,6 +238,22 @@ pub struct Cli {
     #[arg(long = "acp-port", help = "ACP TCP bind port [default: 7243]")]
     pub acp_port: Option<u16>,
 
+    #[cfg(feature = "web")]
+    #[arg(long = "web", help = "Start the Web UI server")]
+    pub web_enabled: bool,
+
+    #[cfg(feature = "web")]
+    #[arg(
+        long = "web-host",
+        default_value = "127.0.0.1",
+        help = "Web UI bind host [default: 127.0.0.1]"
+    )]
+    pub web_host: String,
+
+    #[cfg(feature = "web")]
+    #[arg(long = "web-port", help = "Web UI bind port [default: 8629]")]
+    pub web_port: Option<u16>,
+
     #[cfg(feature = "loop")]
     #[arg(long = "loop-prompt", help = "Prompt for each loop iteration")]
     pub loop_prompt: Option<String>,

@@ -880,7 +880,7 @@ impl Startup {
         Ok(())
     }
 
-    /// Phase 4: mode dispatch — print, loop, or interactive.
+    /// Phase 4: mode dispatch — print, loop, web, or interactive.
     pub(crate) async fn dispatch(self) -> anyhow::Result<()> {
         if self.cli.print {
             self.dispatch_print().await
@@ -890,8 +890,53 @@ impl Startup {
                 return self.dispatch_loop().await;
             }
 
+            #[cfg(feature = "web")]
+            if self.cli.web_enabled {
+                return self.dispatch_web().await;
+            }
+
             self.dispatch_interactive().await
         }
+    }
+
+    /// Web UI mode: same pieces as the TUI (session, client, permission
+    /// channel, sandbox) handed to the axum host instead of the terminal.
+    #[cfg(feature = "web")]
+    async fn dispatch_web(self) -> anyhow::Result<()> {
+        let Startup {
+            cli,
+            cfg,
+            session,
+            context,
+            client,
+            permission,
+            ask_tx,
+            ask_rx,
+            sandbox,
+            provider,
+            model,
+            ..
+        } = self;
+
+        crate::extras::web::run(crate::extras::web::WebArgs {
+            cli,
+            cfg,
+            session,
+            context,
+            client,
+            permission,
+            ask_tx,
+            ask_rx,
+            sandbox,
+            provider: provider.to_string(),
+            model: model.to_string(),
+        })
+        .await?;
+
+        #[cfg(feature = "hooks")]
+        crate::extras::hooks::dispatch_session_end("exit").await;
+
+        Ok(())
     }
 
     async fn dispatch_print(self) -> anyhow::Result<()> {
