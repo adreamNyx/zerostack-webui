@@ -12,7 +12,7 @@ const S = {
   reasoning: false, toolNodes: new Map(), live: null, liveReason: null,
   ask: null, history: [], histIdx: -1, queue: [],
   loop: null, btwCard: null, mention: { items: [], idx: -1 },
-  treeState: new Map(), attached: [],
+  treeState: new Map(), attached: [], features: {}, mcpServers: [], uploadMaxMb: 25,
 };
 
 /* ── helpers ─────────────────────────────────────────────── */
@@ -116,6 +116,10 @@ function onUiState(m) {
   sm.innerHTML = ""; S.modes.forEach((x) => sm.appendChild(new Option(modeLabel(x), x)));
   sm.value = m.mode || "standard";
   S.reasoning = !!m.reasoning;
+  S.features = m.features || {};
+  S.mcpServers = m.mcp_servers || [];
+  S.uploadMaxMb = m.upload_max_mb || 25;
+  renderFeatures();
   $("btn-reason").classList.toggle("on", S.reasoning);
   $("cwd-text").textContent = S.cwd || "—";
   $("btn-cwd").title = S.cwd || "";
@@ -589,6 +593,10 @@ function slash(text) {
       if (!arg) { sysmsg("用法: /btw <问题>", "err"); return true; }
       startBtw(arg); return true;
     case "/loop":
+      if (S.features && S.features.loop === false) {
+        sysmsg("本次构建未启用 loop 特性（cargo build --features loop）", "err");
+        return true;
+      }
       if (arg === "stop" || arg === "off") { send({ type: "loop_stop" }); return true; }
       if (!arg) { sysmsg("用法: /loop <任务> [max=10]  |  /loop stop", "err"); return true; }
       {
@@ -668,6 +676,36 @@ function onLoopStatus(m) {
   $("foot-hints").textContent = m.active
     ? `长任务循环进行中：${m.prompt || ""}`
     : "";
+}
+
+/* ── 编译特性面板 ────────────────────────────────────────── */
+const FEATURE_LABEL = {
+  memory: "持久记忆", hooks: "生命周期钩子", advisor: "顾问模型", lsp: "LSP 诊断",
+  loop: "长任务循环", multimodal: "图片附件", pdf: "PDF 附件", export: "会话导出", mcp: "MCP 服务",
+};
+function renderFeatures() {
+  const box = $("feat-list");
+  if (!box) return;
+  box.innerHTML = "";
+  Object.keys(FEATURE_LABEL).forEach((k) => {
+    const on = !!S.features[k];
+    const row = el("div", "cfg-row");
+    row.appendChild(el("span", "tag " + (on ? "ui" : ""), on ? "✓" : "✗"));
+    row.appendChild(el("code", null, FEATURE_LABEL[k] + " · " + k));
+    box.appendChild(row);
+  });
+  if (S.mcpServers.length) {
+    const row = el("div", "cfg-row");
+    row.appendChild(el("span", "tag ui", "MCP"));
+    row.appendChild(el("code", null, S.mcpServers.join(", ")));
+    box.appendChild(row);
+  }
+  const attach = $("btn-attach");
+  if (attach) {
+    attach.title = S.features.multimodal
+      ? `添加文件（文本，≤${S.uploadMaxMb}MB；图片走多模态）`
+      : `添加文件（仅文本，≤${S.uploadMaxMb}MB；图片需 multimodal 构建）`;
+  }
 }
 
 /* ── config modal ────────────────────────────────────────── */

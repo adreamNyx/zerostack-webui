@@ -182,6 +182,13 @@ struct Conn {
     /// Files the user attached to this conversation (cwd-relative). Injected
     /// into the turn's `extra_files`, so their contents reach the prompt.
     attached: AsyncMutex<Vec<String>>,
+    /// Per-connection LLM routing: switching model in one tab no longer
+    /// changes what the other tabs talk to.
+    runtime: AsyncRwLock<RuntimeModel>,
+    /// Per-connection prompt mode, reasoning visibility and mode restore point.
+    ui: AsyncRwLock<UiState>,
+    /// Per-connection permission checker: each tab picks its own security mode.
+    permission: Option<PermCheck>,
 }
 
 // ── entry point ──────────────────────────────────────────────────────────
@@ -502,11 +509,46 @@ async fn connection(state: Arc<AppState>, socket: WebSocket) {
         session.working_dir = CompactString::new(cwd.to_string_lossy());
     }
     session.refresh_git_branch();
+    // Seed the connection from the server-wide defaults, then let it drift
+    // independently: a fresh permission checker (so `set_mode` is per tab) and
+    // a cloned client (cheap: `AnyClient` is an enum of Arc'd clients).
+    let conn_permission = match &state.permission {
+        Some(p) => {
+            let mode = p.lock().unwrap_or_else(|e| e.into_inner()).mode();
+            let checker = PermissionChecker::new(
+                &state.cfg.build_permission_config(),
+                mode,
+                None,
+                state.cfg.permission_modes.clone(),
+            );
+            Some(Arc::new(std::sync::Mutex::new(checker)))
+        }
+        None => None,
+    };
+    let conn_runtime = {
+        let rt = state.runtime.read().await;
+        RuntimeModel {
+            client: rt.client.clone(),
+            provider: rt.provider.clone(),
+            model: rt.model.clone(),
+        }
+    };
+    let conn_ui = {
+        let ui = state.ui.read().await;
+        UiState {
+            prompt: ui.prompt.clone(),
+            reasoning: ui.reasoning,
+            pre_prompt_mode: ui.pre_prompt_mode,
+        }
+    };
     let conn = Arc::new(Conn {
         session: AsyncMutex::new(session),
         busy: AtomicBool::new(false),
         loop_run: AsyncMutex::new(None),
         attached: AsyncMutex::new(Vec::new()),
+        runtime: AsyncRwLock::new(conn_runtime),
+        ui: AsyncRwLock::new(conn_ui),
+        permission: conn_permission,
     });
 
     let mut turn: Option<Turn> = None;
@@ -519,7 +561,7 @@ async fn connection(state: Arc<AppState>, socket: WebSocket) {
         let session = conn.session.lock().await;
         send(session_state(&session, &state)).await;
         drop(session);
-        send(ui_state(&state)).await;
+        send(ui_state(&state, &conn)).await;
         send(session_list_payload()).await;
         send(attached_payload(&conn).await).await;
     }
@@ -773,6 +815,31 @@ async fn handle_inbound<F, Fut>(
             let abs = if p.is_absolute() { p } else { base.join(&p) };
             match std::fs::canonicalize(&abs) {
                 Ok(c) if c.is_file() && c.starts_with(&base) => {
+                    // `extra_files` are inlined as text; refuse binaries with
+                    // an actionable message instead of feeding mojibake in.
+                    match std::fs::read(&c) {
+                        Ok(bytes) => {
+                            let binary = bytes.iter().take(8192).any(|b| *b == 0)
+                                || std::str::from_utf8(&bytes[..bytes.len().min(16384)]).is_err();
+                            if binary {
+                                let hint = if cfg!(feature = "multimodal") {
+                                    "该文件不是文本；图片/PDF 附件需要多模态通道，当前上传入口只支持文本"
+                                } else {
+                                    "该文件不是文本；图片/PDF 需要以 --features multimodal 构建后再用"
+                                };
+                                send(json!({
+                                    "type": "error",
+                                    "message": format!("{} : {}", raw, hint),
+                                }))
+                                .await;
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            send(json!({"type": "error", "message": e.to_string()})).await;
+                            return;
+                        }
+                    }
                     let rel = c
                         .strip_prefix(&base)
                         .map(|x| x.to_string_lossy().to_string())
@@ -831,7 +898,7 @@ async fn handle_inbound<F, Fut>(
                     .await;
                 return;
             }
-            let prev_mode = state.permission.as_ref().map(|p| {
+            let prev_mode = conn.permission.as_ref().map(|p| {
                 p.lock().unwrap_or_else(|e| e.into_inner()).mode()
             });
             {
@@ -841,21 +908,21 @@ async fn handle_inbound<F, Fut>(
                         // Shared with the TUI/Engine: sets session.prompt to the
                         // right PromptRef and applies any `%%mode=` directive.
                         let mut ctx = state.context.clone();
-                        crate::ui::apply_prompt_mode(n, &mut ctx, &mut session, &state.permission);
-                        state.ui.write().await.pre_prompt_mode = prev_mode;
+                        crate::ui::apply_prompt_mode(n, &mut ctx, &mut session, &conn.permission);
+                        conn.ui.write().await.pre_prompt_mode = prev_mode;
                     }
                     None => {
                         session.prompt = None;
-                        let restore = state.ui.write().await.pre_prompt_mode.take();
-                        if let (Some(m), Some(p)) = (restore, &state.permission) {
+                        let restore = conn.ui.write().await.pre_prompt_mode.take();
+                        if let (Some(m), Some(p)) = (restore, &conn.permission) {
                             p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(m);
                         }
                     }
                 }
                 save_best_effort(&state.cli, &session);
             }
-            state.ui.write().await.prompt = name;
-            send(ui_state(state)).await;
+            conn.ui.write().await.prompt = name;
+            send(ui_state(state, conn)).await;
         }
         Some("set_mode") => {
             let Some(m) = v.get("mode").and_then(Value::as_str) else {
@@ -865,10 +932,10 @@ async fn handle_inbound<F, Fut>(
                 send(json!({"type": "error", "message": format!("unknown mode: {m}")})).await;
                 return;
             };
-            match &state.permission {
+            match &conn.permission {
                 Some(p) => {
                     p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(mode);
-                    send(ui_state(state)).await;
+                    send(ui_state(state, conn)).await;
                 }
                 None => {
                     send(json!({"type": "error", "message": "permission system disabled"})).await
@@ -912,12 +979,12 @@ async fn handle_inbound<F, Fut>(
                 drop(session);
                 send(payload).await;
             }
-            send(ui_state(state)).await;
+            send(ui_state(state, conn)).await;
         }
         Some("set_reasoning") => {
             let enabled = v.get("enabled").and_then(Value::as_bool).unwrap_or(false);
-            state.ui.write().await.reasoning = enabled;
-            send(ui_state(state)).await;
+            conn.ui.write().await.reasoning = enabled;
+            send(ui_state(state, conn)).await;
         }
         Some("switch_model") => {
             let Some(name) = v.get("name").and_then(Value::as_str) else {
@@ -952,7 +1019,7 @@ async fn handle_inbound<F, Fut>(
             ) {
                 Ok(client) => {
                     {
-                        let mut rt = state.runtime.write().await;
+                        let mut rt = conn.runtime.write().await;
                         rt.client = client;
                         rt.provider = prov.clone();
                         rt.model = mdl.clone();
@@ -1197,7 +1264,7 @@ async fn handle_inbound<F, Fut>(
             // Read-only side question: own agent, own permission checker, own
             // history snapshot; nothing is written back to the session.
             let (model_str, model) = {
-                let rt = state.runtime.read().await;
+                let rt = conn.runtime.read().await;
                 (rt.model.clone(), rt.client.completion_model(rt.model.clone()))
             };
             let temperature = crate::config::resolve_temperature(&state.cli, &state.cfg, &model_str);
@@ -1211,7 +1278,7 @@ async fn handle_inbound<F, Fut>(
             );
             let perm: PermCheck = Arc::new(std::sync::Mutex::new(checker));
             let (ctx, reasoning) = {
-                let ui = state.ui.read().await;
+                let ui = conn.ui.read().await;
                 let mut c = state.context.clone();
                 if let Some(name) = &ui.prompt
                     && let Some(body) = state.context.prompts.get(name)
@@ -1330,7 +1397,7 @@ async fn handle_inbound<F, Fut>(
                         "message": format!("已切到 worktree: {}", path.display()),
                     }))
                     .await;
-                    send(ui_state(state)).await;
+                    send(ui_state(state, conn)).await;
                 }
                 Err(e) => {
                     send(json!({"type": "worktree", "ok": false, "message": e})).await;
@@ -1376,7 +1443,7 @@ async fn handle_inbound<F, Fut>(
                                 "message": format!("已合并 {} 到 {} 并清理 worktree", info.branch, target),
                             }))
                             .await;
-                            send(ui_state(state)).await;
+                            send(ui_state(state, conn)).await;
                         }
                         crate::extras::git_worktree::MergeOutcome::Conflicts(files) => {
                             send(json!({
@@ -1421,7 +1488,7 @@ async fn handle_inbound<F, Fut>(
                     "message": format!("已回到主仓库(分支 {} 保留)", info.branch),
                 }))
                 .await;
-                send(ui_state(state)).await;
+                send(ui_state(state, conn)).await;
             }
             None => {
                 send(json!({"type": "worktree", "ok": false, "message": "当前目录不是 worktree"}))
@@ -1474,7 +1541,7 @@ where
             false
         }
         AgentEvent::Reasoning(text) => {
-            if state.ui.read().await.reasoning {
+            if conn.ui.read().await.reasoning {
                 send(json!({"type": "reasoning", "text": text})).await;
             }
             false
@@ -1626,7 +1693,7 @@ async fn start_turn(
     prompt: String,
 ) -> anyhow::Result<(mpsc::Receiver<AgentEvent>, tokio::task::AbortHandle, usize)> {
     let (model_str, model) = {
-        let rt = state.runtime.read().await;
+        let rt = conn.runtime.read().await;
         let model_str = rt.model.clone();
         let model = rt.client.completion_model(model_str.clone());
         (model_str, model)
@@ -1639,7 +1706,7 @@ async fn start_turn(
     // Per-turn context: the base context plus the prompt mode picked in the UI
     // (`/prompt` equivalent). Cloning keeps the shared registry untouched.
     let (context, reasoning) = {
-        let ui = state.ui.read().await;
+        let ui = conn.ui.read().await;
         let mut ctx = state.context.clone();
         if let Some(name) = &ui.prompt
             && let Some(body) = state.context.prompts.get(name)
@@ -1671,7 +1738,7 @@ async fn start_turn(
             cli: &state.cli,
             cfg: &state.cfg,
             context: &context,
-            permission: state.permission.clone(),
+            permission: conn.permission.clone(),
             ask_tx: state.ask_tx.clone(),
             sandbox: state.sandbox.clone(),
             reasoning_enabled: reasoning,
@@ -1964,12 +2031,12 @@ fn session_list_payload() -> Value {
 
 /// Control-surface state: everything the top bar and composer need to render
 /// the current prompt mode, permission mode, cwd and reasoning toggle.
-fn ui_state(state: &Arc<AppState>) -> Value {
-    let (prompt, reasoning) = match state.ui.try_read() {
+fn ui_state(state: &Arc<AppState>, conn: &Arc<Conn>) -> Value {
+    let (prompt, reasoning) = match conn.ui.try_read() {
         Ok(u) => (u.prompt.clone(), u.reasoning),
         Err(_) => (None, state.cfg.resolve_show_reasoning()),
     };
-    let mode = state
+    let mode = conn
         .permission
         .as_ref()
         .map(|p| {
@@ -1984,6 +2051,30 @@ fn ui_state(state: &Arc<AppState>) -> Value {
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
+    // Which optional subsystems were compiled in: the UI hides panels for
+    // features this build lacks instead of offering dead buttons.
+    let features = json!({
+        "memory": cfg!(feature = "memory"),
+        "hooks": cfg!(feature = "hooks"),
+        "advisor": cfg!(feature = "advisor"),
+        "lsp": cfg!(feature = "lsp"),
+        "loop": cfg!(feature = "loop"),
+        "multimodal": cfg!(feature = "multimodal"),
+        "pdf": cfg!(feature = "pdf"),
+        "export": cfg!(feature = "export"),
+        "mcp": cfg!(feature = "mcp"),
+    });
+    let mut mcp_servers: Vec<String> = state
+        .cfg
+        .mcp_servers
+        .as_ref()
+        .map(|m| m.keys().cloned().collect())
+        .unwrap_or_default();
+    mcp_servers.sort();
+    let advisor = state.cfg.advisor.as_ref().map(|a| json!({
+        "enabled": a.enabled,
+        "model": a.model,
+    }));
     json!({
         "type": "ui_state",
         "prompt": prompt,
@@ -1992,6 +2083,10 @@ fn ui_state(state: &Arc<AppState>) -> Value {
         "modes": ["standard", "guarded", "readonly", "restrictive", "yolo"],
         "reasoning": reasoning,
         "cwd": cwd,
+        "features": features,
+        "mcp_servers": mcp_servers,
+        "advisor": advisor,
+        "upload_max_mb": 25,
     })
 }
 
