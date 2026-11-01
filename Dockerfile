@@ -1,33 +1,16 @@
-# ── Stage 1: 构建 ─────────────────────────────────────────────
-FROM rust:1.96-bookworm AS builder
+# ── 最终镜像：基于预装好依赖的 zsbase（离线构建，无需网络）────
+# zsbase 的生成方式（见 docs 或交付说明）：
+#   docker run -d --name zsbase ubuntu:24.04 sleep 600
+#   docker exec zsbase apt-get update
+#   docker exec zsbase apt-get install -y --no-install-recommends git ca-certificates curl tini
+#   docker exec zsbase useradd -m -u 1001 zerostack
+#   docker commit zsbase zsbase:latest && docker rm -f zsbase
+# 受限网络环境下 BuildKit 的 RUN 无法出网，故用 run+exec+commit 绕过。
 
-# ⚠️ 项目 .cargo/config.toml 强制 mold 链接器（fuse-ld=mold），
-#    不装 mold 构建必然失败——这是本地编译时踩过的坑。
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends mold git pkg-config libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+FROM zsbase:latest
 
-WORKDIR /build
-COPY . .
-
-# 先拉依赖，充分利用 Docker 层缓存（源码改动不重新下载 crates）
-RUN cargo fetch
-# web = Web UI；multithread = 多核 tokio runtime（默认是单线程，服务端建议开）
-RUN cargo build --release --features web,multithread \
-    && strip target/release/zerostack
-
-# ── Stage 2: 运行时（单二进制 + git，无 Rust 工具链）──────────
-# Web UI 的前端资源通过 include_str! 编译进二进制，无需额外资产文件
-FROM debian:bookworm-slim
-
-# git：agent 的 git 操作（worktree/refresh_git_branch）需要；
-# curl：仅用于 HEALTHCHECK
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd -m -u 1000 zerostack
-
-COPY --from=builder /build/target/release/zerostack /usr/local/bin/zerostack
+COPY docker/zerostack /usr/local/bin/zerostack
+RUN chmod +x /usr/local/bin/zerostack
 
 # 非 root 运行：agent 会在容器内执行 bash 命令，降权是第一道边界
 USER zerostack
@@ -42,5 +25,6 @@ EXPOSE 18800
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD curl -sf http://127.0.0.1:18800/ || exit 1
 
-ENTRYPOINT ["zerostack"]
+# tini 作为 init：正确转发信号，保证 docker stop 时会话落盘
+ENTRYPOINT ["/usr/bin/tini", "--", "zerostack"]
 CMD ["--web", "--web-host", "0.0.0.0"]
